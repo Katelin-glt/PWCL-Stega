@@ -130,12 +130,13 @@ class RDrop(nn.Module):
     Notes: The model must contains `dropout`. The model predicts twice with the same input, and outputs logits1 and logits2.
     """
 
-    def __init__(self):
+    def __init__(self, kl_weight=5.0):
         super(RDrop, self).__init__()
         self.ce = nn.CrossEntropyLoss(reduction='none')
         self.kld = nn.KLDivLoss(reduction='none')
+        self.kl_weight = kl_weight
 
-    def forward(self, logits1, logits2, target, kl_weight=5.):
+    def forward(self, logits1, logits2, target):
         """
         Args:
             logits1: One output of the classification model.
@@ -150,7 +151,7 @@ class RDrop(nn.Module):
         kl_loss1 = self.kld(F.log_softmax(logits1, dim=-1), F.softmax(logits2, dim=-1)).sum(-1)
         kl_loss2 = self.kld(F.log_softmax(logits2, dim=-1), F.softmax(logits1, dim=-1)).sum(-1)
         kl_loss = (kl_loss1 + kl_loss2) / 2
-        loss = ce_loss + kl_weight * kl_loss
+        loss = ce_loss + self.kl_weight * kl_loss
         return loss.mean()
 
     # def simcse_loss(y_true, y_pred):

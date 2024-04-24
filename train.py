@@ -49,12 +49,12 @@ def train(epoch, train_loader, model_main, model_helper, loss_function, optimize
         label_name = "label"
 
         text = batch[text_name]
-        attn = batch[text_name+"_attn_mask"]
+        attn = batch[text_name + "_attn_mask"]
         label = batch[label_name]
         label = torch.tensor(label)
         label = torch.autograd.Variable(label).long()
 
-        if (label.size()[0] is not train_batch_size):# Last batch may have length different than log.param.batch_size
+        if (label.size()[0] is not train_batch_size):  # Last batch may have length different than log.param.batch_size
             continue
 
         if torch.cuda.is_available():
@@ -97,7 +97,6 @@ def train(epoch, train_loader, model_main, model_helper, loss_function, optimize
         optimizer.zero_grad()
 
         steps += 1
-
         if steps % 100 == 0:
             print(f'Epoch: {epoch:02}, Idx: {idx+1}, Training Loss_1: {loss_1.item():.4f}, Time taken: {((time.time()-start_train_time)/60): .2f} min')
             start_train_time = time.time()
@@ -110,7 +109,6 @@ def train(epoch, train_loader, model_main, model_helper, loss_function, optimize
         total_pred_1.extend(pred_list_1)
 
         acc_1 = 100.0 * (num_corrects_1/train_batch_size)
-        acc_curve_1.append(acc_1.item())
         total_epoch_acc_1 += acc_1.item()
 
         num_corrects_2 = (torch.max(pred_2, 1)[1].view(label.size()).data == label.data).float().sum()
@@ -118,10 +116,9 @@ def train(epoch, train_loader, model_main, model_helper, loss_function, optimize
         total_pred_2.extend(pred_list_2)
 
         acc_2 = 100.0 * (num_corrects_2/train_batch_size)
-        acc_curve_2.append(acc_2.item())
         total_epoch_acc_2 += acc_2.item()
 
-    return train_loss_1/len(train_loader), train_loss_2/len(train_loader), total_epoch_acc_1/len(train_loader), total_epoch_acc_2/len(train_loader), acc_curve_1, acc_curve_2
+    return train_loss_1/len(train_loader), train_loss_2/len(train_loader), total_epoch_acc_1/len(train_loader), total_epoch_acc_2/len(train_loader)
 
 
 def test(epoch, test_loader, model_main, model_helper, loss_function, log):
@@ -131,7 +128,7 @@ def test(epoch, test_loader, model_main, model_helper, loss_function, log):
     total_epoch_acc_1, total_epoch_acc_2 = 0, 0
     total_pred_1, total_pred_2, total_true, total_pred_prob_1, total_pred_prob_2 = [], [], [], [], []
     save_pred = {"true":[], "pred_1":[], "pred_2":[], "pred_prob_1":[], "pred_prob_2":[], "feature":[]}
-    acc_curve_1, acc_curve_2 = [], []
+
     total_feature = []
     with torch.no_grad():
         for idx, batch in enumerate(test_loader):
@@ -157,7 +154,6 @@ def test(epoch, test_loader, model_main, model_helper, loss_function, log):
             true_list = label.data.detach().cpu().tolist()
 
             acc_1 = 100.0 * num_corrects_1/1
-            acc_curve_1.append(acc_1.item())
             total_epoch_acc_1 += acc_1.item()
 
             num_corrects_2 = (torch.max(pred_2, 1)[1].view(label.size()).data == label.data).float().sum()
@@ -171,17 +167,10 @@ def test(epoch, test_loader, model_main, model_helper, loss_function, log):
             total_pred_prob_2.extend(pred_2.data.detach().cpu().tolist())
 
             acc_2 = 100.0 * num_corrects_2/1
-            acc_curve_2.append(acc_2.item())
             total_epoch_acc_2 += acc_2.item()
 
-    f1_score_1 = f1_score(total_true, total_pred_1, average="macro")
-    f1_score_2 = f1_score(total_true, total_pred_2, average="macro")
-
-    f1_score_1_w = f1_score(total_true, total_pred_1, average="weighted")
-    f1_score_2_w = f1_score(total_true, total_pred_2, average="weighted")
-
-    f1_score_1 = {"macro": f1_score_1, "weighted": f1_score_1_w}
-    f1_score_2 = {"macro": f1_score_2, "weighted": f1_score_2_w}
+    f1_score_1 = {"macro": f1_score(total_true, total_pred_1, average="macro")}
+    f1_score_2 = {"macro": f1_score(total_true, total_pred_2, average="macro")}
 
     save_pred["true"] = total_true
     save_pred["pred_1"] = total_pred_1
@@ -191,7 +180,6 @@ def test(epoch, test_loader, model_main, model_helper, loss_function, log):
     save_pred["pred_prob_2"] = total_pred_prob_2
 
     return total_epoch_acc_1/len(test_loader), total_epoch_acc_2/len(test_loader), f1_score_1, f1_score_2, save_pred,\
-           acc_curve_1, acc_curve_2
 
 
 def lcl_train(log):
@@ -200,20 +188,18 @@ def lcl_train(log):
     random.seed(log.param.SEED)
     torch.manual_seed(log.param.SEED)
     torch.cuda.manual_seed(log.param.SEED)
-    torch.cuda.manual_seed_all(log.param.SEED)
 
     train_data, valid_data, test_data = get_dataloader(log.param.batch_size, log.param.corpus, log.param.stego_method,
                                                        log.param.dataset, w_aug=log.param.is_waug)
 
-    if log.param.loss_type == "lcl" or log.param.loss_type == "lcl_drop":
-        losses = {"contrastive": loss.LCL(temperature=log.param.temperature), "ce": nn.CrossEntropyLoss(),
-                  "lambda_loss":log.param.lambda_loss, "R_Drop": loss.RDrop()}
-    elif log.param.loss_type == "scl" or log.param.loss_type == "scl_drop":
-        losses = {"contrastive": loss.SupConLoss(temperature=log.param.temperature), "ce": nn.CrossEntropyLoss(),
-                  "lambda_loss":log.param.lambda_loss, "R_Drop": loss.RDrop()}
-    else:
-        losses = {"ce": nn.CrossEntropyLoss(), "lambda_loss":log.param.lambda_loss,
-                  "contrastive":loss.SupConLoss(temperature=log.param.temperature), "R_Drop": loss.RDrop()}
+    # define loss type
+    losses = {"ce": nn.CrossEntropyLoss(), "lambda_loss": log.param.lambda_loss, "R_Drop": loss.RDrop(kl_weight=log.param.kl_weight)}
+
+    if log.param.loss_type in ["lcl", "lcl_drop"]:
+        losses["contrastive"] = loss.LCL(temperature=log.param.temperature)
+    if log.param.loss_type in ["scl", "scl_drop"]:
+        losses["contrastive"] = loss.SupConLoss(temperature=log.param.temperature)
+
     train_loss_overall, test_loss_overall, train_accuracy_overall, test_accuracy_overall = 0, 0, 0, 0
 
     run_start = datetime.now()
@@ -232,32 +218,22 @@ def lcl_train(log):
     optimizer = AdamW(optimizer_grouped_parameters, lr=log.param.main_learning_rate)
     lr_scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=0, num_training_steps=num_training_steps)
 
-    save_home = "./save/final/"+log.param.corpus+"/"+log.param.stego_method+"/"+log.param.dataset+"/"+log.param.loss_type+"/"+model_run_time+"/"
-    #save_home = "./save/final/"+log.param.dataset+"/"+log.param.loss_type+"/"+model_run_time+"/"
-    total_train_acc_curve_1, total_train_acc_curve_2, total_val_acc_curve_1, total_val_acc_curve_2 = [], [], [], []
+    save_home = "./save/"+log.param.corpus+"/"+log.param.stego_method+"/"+log.param.dataset+"/"+log.param.loss_type+"/"+model_run_time+"/"
 
     for epoch in range(1, log.param.nepoch + 1):
-        train_loss_1, train_loss_2, train_acc_1, train_acc_2, train_acc_curve_1, train_acc_curve_2 = train(epoch, train_data, model_main, model_helper, losses, optimizer, lr_scheduler, log)
-        val_acc_1, val_acc_2, val_f1_1, val_f1_2, val_save_pred, val_acc_curve_1, val_acc_curve_2 = test(epoch, valid_data, model_main, model_helper, losses, log)
-        test_acc_1, test_acc_2, test_f1_1, test_f1_2, test_save_pred, test_acc_curve_1, test_acc_curve_2 = test(epoch, test_data, model_main, model_helper, losses, log)
-
-        total_train_acc_curve_1.extend(train_acc_curve_1)
-        total_val_acc_curve_1.extend(val_acc_curve_1)
-        total_train_acc_curve_2.extend(train_acc_curve_2)
-        total_val_acc_curve_2.extend(val_acc_curve_2)
+        train_loss_1, train_loss_2, train_acc_1, train_acc_2 = train(epoch, train_data, model_main, model_helper, losses, optimizer, lr_scheduler, log)
+        val_acc_1, val_acc_2, val_f1_1, val_f1_2, val_save_pred = test(epoch, valid_data, model_main, model_helper, losses, log)
+        test_acc_1, test_acc_2, test_f1_1, test_f1_2, test_save_pred = test(epoch, test_data, model_main, model_helper, losses, log)
 
         print('====> Epoch: {} Train loss_1: {:.4f}'.format(epoch, train_loss_1))
         os.makedirs(save_home, exist_ok=True)
-        with open(save_home + "/acc_curve.json", 'w') as fp:
-            json.dump({"train_acc_curve_1": total_train_acc_curve_1, "val_acc_curve_1": total_val_acc_curve_1}, fp, indent=4)
-        fp.close()
 
         if epoch == 1:
              best_criterion = 0
-        # is_best = val_acc_1 > best_criterion
-        # best_criterion = max(val_acc_1, best_criterion)
-        is_best = test_acc_1 > best_criterion
-        best_criterion = max(test_acc_1, best_criterion)
+        is_best = val_acc_1 > best_criterion
+        best_criterion = max(val_acc_1, best_criterion)
+        # is_best = test_acc_1 > best_criterion
+        # best_criterion = max(test_acc_1, best_criterion)
 
         print("Model 1")
         print(f'Valid Accuracy: {val_acc_1:.2f}  Valid F1: {val_f1_1["macro"]:.2f}')
@@ -273,7 +249,7 @@ def lcl_train(log):
             log.train_loss_1 = train_loss_1
             log.train_loss_2 = train_loss_2
             log.stop_epoch = epoch
-            log.stop_step = len(total_val_acc_curve_2)
+
             log.valid_f1_score_1 = val_f1_1
             log.test_f1_score_1 = test_f1_1
             log.valid_accuracy_1 = val_acc_1
@@ -306,7 +282,7 @@ if __name__ == '__main__':
 
     tuning_param = train_config.tuning_param
     param_list = [train_config.param[i] for i in tuning_param]
-    param_list = [tuple(tuning_param)] + list(iter_product(*param_list))  # [(param_name),(param combinations)]
+    param_list = [tuple(tuning_param)] + list(iter_product(*param_list))  # tunning params [(param_name),(param combinations)]
 
     for param_com in param_list[1:]:  # as first element is just name
         log = edict()
@@ -322,11 +298,24 @@ if __name__ == '__main__':
         elif "allbpw" in log.param.dataset:
             log.param.label_size = 6
 
-        for loss_type in ['lcl', 'lcl_drop', 'scl_drop']:
+        for loss_type in ['scl', 'scl_drop', 'lcl', 'lcl_drop']:
             log.param.loss_type = loss_type
-            run_start = datetime.now()
-            lcl_train(log)
-            run_end = datetime.now()
-            run_time = str((run_end - run_start).seconds / 60) + ' minutes'
-            print("corpus: ", log.param.corpus, "stego_method: ", log.param.stego_method,
-                "dataset: ", log.param.dataset, "model_type: ", log.param.model_type, "run_time: ", run_time)
+
+
+        for stego_method in ['AC', 'VLC']:
+            log.param.stego_method = stego_method
+            for corpus in ['IMDB', 'News']:
+                log.param.corpus = corpus
+                for dataset in ['1bpw', '2bpw','3bpw','4bpw','5bpw']:
+                    log.param.dataset = dataset
+                    if log.param.dataset in ['1bpw', '2bpw']:
+                        log.param.main_learning_rate = 2e-05
+                    else:
+                        log.param.main_learning_rate = 1e-05
+                    run_start = datetime.now()
+                    lcl_train(log)
+                    run_end = datetime.now()
+                    run_time = str((run_end - run_start).seconds / 60) + ' minutes'
+                    print("corpus: ", log.param.corpus, "stego_method: ", log.param.stego_method,
+                        "dataset: ", log.param.dataset, "model_type: ", log.param.model_type,
+                        "loss_type: ", log.param.loss_type, "run_time: ", run_time)
